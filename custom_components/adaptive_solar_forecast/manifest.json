@@ -1,0 +1,10 @@
+{
+  "domain": "adaptive_solar_forecast",
+  "name": "Adaptive Solar Forecast",
+  "codeowners": [],
+  "config_flow": true,
+  "iot_class": "calculated",
+  "loggers": ["custom_components.adaptive_solar_forecast"],
+  "requirements": [],
+  "version": "0.1.0"
+}

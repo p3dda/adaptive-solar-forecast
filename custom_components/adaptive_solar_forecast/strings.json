@@ -1,0 +1,39 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Adaptive Solar Forecast",
+        "description": "Create a forecast sensor that applies a shading model on top of an existing solar forecast.",
+        "data": {
+          "name": "Name",
+          "forecast_today_entity": "Forecast entity for today",
+          "forecast_tomorrow_entity": "Forecast entity for tomorrow",
+          "sun_entity": "Sun entity",
+          "update_interval": "Update interval in minutes"
+        }
+      },
+      "advanced": {
+        "title": "Shading model",
+        "description": "Tune the morning azimuth sector and afternoon elevation fade.",
+        "data": {
+          "morning_free_azimuth": "Morning free azimuth",
+          "morning_shade_start_azimuth": "Morning shade start azimuth",
+          "morning_shade_end_azimuth": "Morning shade end azimuth",
+          "morning_recover_azimuth": "Morning recover azimuth",
+          "morning_deep_factor": "Morning deep shadow factor",
+          "afternoon_high_elevation": "Afternoon high elevation",
+          "afternoon_mid_elevation": "Afternoon mid elevation",
+          "afternoon_low_elevation": "Afternoon low elevation",
+          "afternoon_deep_elevation": "Afternoon deep elevation",
+          "afternoon_end_elevation": "Afternoon end elevation",
+          "afternoon_mid_factor": "Afternoon mid factor",
+          "afternoon_low_factor": "Afternoon low factor",
+          "afternoon_deep_factor": "Afternoon deep factor",
+          "afternoon_end_factor": "Afternoon end factor",
+          "afternoon_horizon_factor": "Afternoon horizon factor",
+          "after_solar_noon_only": "Only apply afternoon damping after solar noon"
+        }
+      }
+    }
+  }
+}
