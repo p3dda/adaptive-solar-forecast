@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 
 from homeassistant.components.sensor import (
     SensorDeviceClass,
@@ -119,7 +119,7 @@ class AdaptiveSolarForecastSensor(CoordinatorEntity[AdaptiveSolarForecastCoordin
         base = {
             "current_azimuth": round(data["current_azimuth"], 2),
             "current_elevation": round(data["current_elevation"], 2),
-            "model": data["model"].__dict__,
+            "model": asdict(data["model"]),
         }
 
         if self.entity_description.key == "today_energy":
