@@ -2,10 +2,16 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import Any
 
-from homeassistant.components.sensor import SensorDeviceClass, SensorEntity, SensorStateClass
+from dataclasses import dataclass
+
+from homeassistant.components.sensor import (
+    SensorDeviceClass,
+    SensorEntity,
+    SensorEntityDescription,
+    SensorStateClass,
+)
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import UnitOfEnergy, UnitOfPower
 from homeassistant.core import HomeAssistant
@@ -17,14 +23,10 @@ from .coordinator import AdaptiveSolarForecastCoordinator
 
 
 @dataclass(slots=True)
-class AdaptiveSolarForecastSensorDescription:
+class AdaptiveSolarForecastSensorDescription(SensorEntityDescription):
     """Description for Adaptive Solar Forecast sensors."""
 
-    key: str
-    name: str
-    device_class: SensorDeviceClass | None = None
-    native_unit_of_measurement: str | None = None
-    state_class: SensorStateClass | None = None
+    pass
 
 
 SENSOR_DESCRIPTIONS = (
