@@ -2,6 +2,10 @@
 
 `adaptive_solar_forecast` is a Home Assistant custom integration that post-processes an existing solar forecast with a site-specific shading model.
 
+[![Validate with HACS](https://img.shields.io/github/actions/workflow/status/p3dda/adaptive-solar-forecast/validate.yaml?branch=main&label=HACS)](https://github.com/p3dda/adaptive-solar-forecast/actions/workflows/validate.yaml)
+[![Validate with Hassfest](https://img.shields.io/github/actions/workflow/status/p3dda/adaptive-solar-forecast/hassfest.yaml?branch=main&label=Hassfest)](https://github.com/p3dda/adaptive-solar-forecast/actions/workflows/hassfest.yaml)
+[![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=p3dda&repository=adaptive-solar-forecast&category=integration)
+
 The initial target is a common real-world setup:
 - the base forecast is broadly correct
 - the installation has recurring local shading
@@ -80,6 +84,34 @@ Then restart Home Assistant and add the integration in:
 
 `Settings -> Devices & Services -> Add Integration`
 
+## Validation
+
+The repository is prepared for two GitHub-based validation paths:
+- `HACS` validation for repository structure and packaging
+- `Hassfest` validation for Home Assistant custom integration metadata
+
+Included workflows:
+- `.github/workflows/validate.yaml`
+- `.github/workflows/hassfest.yaml`
+
+Current caveats:
+- the included brand assets are placeholders and should be replaced with real artwork
+- GitHub repository description and topics should be set in the GitHub UI for a cleaner HACS validation result
+
+## Install smoke test
+
+The intended installation smoke test is:
+1. Install via HACS custom repository or copy the integration manually.
+2. Restart Home Assistant.
+3. Add `Adaptive Solar Forecast` in the integrations UI.
+4. Select forecast sensor(s) and `sun.sun`.
+5. Confirm the new adjusted sensors are created and expose corrected `watts` and `wh_period`.
+
+Expected MVP behavior:
+- corrected energy sensors appear after setup
+- `Current Shading Factor` changes during the day
+- corrected forecast values are lower than the source forecast in shaded windows
+
 ## Configuration
 
 The config flow currently asks for:
@@ -109,6 +141,7 @@ Near-term:
 - validate config values and threshold ordering
 - make the sensor model and attributes more robust
 - add diagnostics and better error messages
+- replace placeholder brand assets with final artwork
 
 Next phase:
 - calibrate the model from historical Recorder data

@@ -4,6 +4,7 @@
   "codeowners": ["@p3dda"],
   "config_flow": true,
   "documentation": "https://github.com/p3dda/adaptive-solar-forecast",
+  "integration_type": "service",
   "issue_tracker": "https://github.com/p3dda/adaptive-solar-forecast/issues",
   "iot_class": "calculated",
   "loggers": ["custom_components.adaptive_solar_forecast"],
