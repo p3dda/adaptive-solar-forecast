@@ -95,7 +95,6 @@ Included workflows:
 - `.github/workflows/hassfest.yaml`
 
 Current caveats:
-- the included brand assets are placeholders and should be replaced with real artwork
 - GitHub repository description and topics should be set in the GitHub UI for a cleaner HACS validation result
 
 ## Install smoke test
