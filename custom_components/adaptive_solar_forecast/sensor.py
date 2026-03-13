@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, is_dataclass
 
 from homeassistant.components.sensor import (
     SensorDeviceClass,
@@ -100,37 +100,73 @@ class AdaptiveSolarForecastSensor(CoordinatorEntity[AdaptiveSolarForecastCoordin
     @property
     def native_value(self) -> float | None:
         """Return the sensor value."""
-        data = self.coordinator.data
+        data = self._get_coordinator_data()
+        if data is None:
+            return None
+        today = self._get_dataset(data, "today")
+        tomorrow = self._get_dataset(data, "tomorrow")
         if self.entity_description.key == "today_energy":
-            return data["today"]["adjusted_energy_kwh"]
+            return today.get("adjusted_energy_kwh") if today else None
         if self.entity_description.key == "tomorrow_energy":
-            tomorrow = data["tomorrow"]
-            return tomorrow["adjusted_energy_kwh"] if tomorrow else None
+            return tomorrow.get("adjusted_energy_kwh") if tomorrow else None
         if self.entity_description.key == "current_factor":
-            return round(data["current_factor"], 3)
+            current_factor = data.get("current_factor")
+            return round(current_factor, 3) if isinstance(current_factor, (int, float)) else None
         if self.entity_description.key == "today_peak_power":
-            return data["today"]["adjusted_peak_power_w"]
+            return today.get("adjusted_peak_power_w") if today else None
         return None
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         """Return extra attributes."""
-        data = self.coordinator.data
+        data = self._get_coordinator_data()
+        if data is None:
+            return {}
+        today = self._get_dataset(data, "today")
+        tomorrow = self._get_dataset(data, "tomorrow")
+        model = self._model_as_dict(data.get("model"))
         base = {
-            "current_azimuth": round(data["current_azimuth"], 2),
-            "current_elevation": round(data["current_elevation"], 2),
-            "model": asdict(data["model"]),
+            "current_azimuth": self._round_if_number(data.get("current_azimuth"), 2),
+            "current_elevation": self._round_if_number(data.get("current_elevation"), 2),
+            "model": model,
         }
 
-        if self.entity_description.key == "today_energy":
-            base["watts"] = data["today"]["watts"]
-            base["wh_period"] = data["today"]["wh_period"]
-            base["mean_factor"] = data["today"]["mean_factor"]
-            base["source_entity_id"] = data["today"]["entity_id"]
-        elif self.entity_description.key == "tomorrow_energy" and data["tomorrow"]:
-            base["watts"] = data["tomorrow"]["watts"]
-            base["wh_period"] = data["tomorrow"]["wh_period"]
-            base["mean_factor"] = data["tomorrow"]["mean_factor"]
-            base["source_entity_id"] = data["tomorrow"]["entity_id"]
+        if self.entity_description.key == "today_energy" and today:
+            base["watts"] = today.get("watts")
+            base["wh_period"] = today.get("wh_period")
+            base["mean_factor"] = today.get("mean_factor")
+            base["source_entity_id"] = today.get("entity_id")
+        elif self.entity_description.key == "tomorrow_energy" and tomorrow:
+            base["watts"] = tomorrow.get("watts")
+            base["wh_period"] = tomorrow.get("wh_period")
+            base["mean_factor"] = tomorrow.get("mean_factor")
+            base["source_entity_id"] = tomorrow.get("entity_id")
 
         return base
+
+    @staticmethod
+    def _round_if_number(value: Any, digits: int) -> float | None:
+        """Round numeric values defensively."""
+        return round(value, digits) if isinstance(value, (int, float)) else None
+
+    def _get_coordinator_data(self) -> dict[str, Any] | None:
+        """Return coordinator data if it has the expected mapping structure."""
+        data = self.coordinator.data
+        return data if isinstance(data, dict) else None
+
+    @staticmethod
+    def _get_dataset(data: dict[str, Any], key: str) -> dict[str, Any] | None:
+        """Fetch a dataset dict from coordinator data."""
+        dataset = data.get(key)
+        return dataset if isinstance(dataset, dict) else None
+
+    @staticmethod
+    def _model_as_dict(model: Any) -> dict[str, Any] | None:
+        """Render the model config safely for state attributes."""
+        if model is None:
+            return None
+        if is_dataclass(model):
+            return asdict(model)
+        if isinstance(model, dict):
+            return dict(model)
+        return {"value": model}
