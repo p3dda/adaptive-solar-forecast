@@ -170,6 +170,46 @@ def _advanced_schema(defaults: Mapping[str, Any]) -> vol.Schema:
     )
 
 
+def _validate_threshold_ordering(data: Mapping[str, Any]) -> dict[str, str]:
+    """Validate ordering constraints for azimuth/elevation thresholds."""
+    errors: dict[str, str] = {}
+
+    def _get_float(key: str) -> float | None:
+        value = data.get(key)
+        if value is None:
+            return None
+        return float(value)
+
+    morning_keys = (
+        CONF_MORNING_FREE_AZIMUTH,
+        CONF_MORNING_SHADE_START_AZIMUTH,
+        CONF_MORNING_SHADE_END_AZIMUTH,
+        CONF_MORNING_RECOVER_AZIMUTH,
+    )
+    morning_values = [_get_float(key) for key in morning_keys]
+    if all(value is not None for value in morning_values):
+        free, shade_start, shade_end, recover = morning_values
+        if not (free <= shade_start <= shade_end <= recover):
+            for key in morning_keys:
+                errors[key] = "morning_azimuth_order"
+
+    afternoon_keys = (
+        CONF_AFTERNOON_HIGH_ELEVATION,
+        CONF_AFTERNOON_MID_ELEVATION,
+        CONF_AFTERNOON_LOW_ELEVATION,
+        CONF_AFTERNOON_DEEP_ELEVATION,
+        CONF_AFTERNOON_END_ELEVATION,
+    )
+    afternoon_values = [_get_float(key) for key in afternoon_keys]
+    if all(value is not None for value in afternoon_values):
+        high, mid, low, deep, end = afternoon_values
+        if not (high >= mid >= low >= deep >= end):
+            for key in afternoon_keys:
+                errors[key] = "afternoon_elevation_order"
+
+    return errors
+
+
 class AdaptiveSolarForecastConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Adaptive Solar Forecast."""
 
@@ -195,6 +235,13 @@ class AdaptiveSolarForecastConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         """Handle advanced shading tuning."""
         if user_input is not None:
             data = {**self._base_input, **user_input}
+            errors = _validate_threshold_ordering(data)
+            if errors:
+                return self.async_show_form(
+                    step_id="advanced",
+                    data_schema=_advanced_schema(user_input),
+                    errors=errors,
+                )
             await self.async_set_unique_id(data[CONF_NAME].lower().replace(" ", "_"))
             self._abort_if_unique_id_configured()
             return self.async_create_entry(title=data[CONF_NAME], data=data)
@@ -212,6 +259,18 @@ class AdaptiveSolarForecastOptionsFlow(config_entries.OptionsFlow):
     async def async_step_init(self, user_input: dict[str, Any] | None = None):
         """Manage the options."""
         if user_input is not None:
+            errors = _validate_threshold_ordering(user_input)
+            if errors:
+                return self.async_show_form(
+                    step_id="init",
+                    data_schema=vol.Schema(
+                        {
+                            **_base_schema(user_input).schema,
+                            **_advanced_schema(user_input).schema,
+                        }
+                    ),
+                    errors=errors,
+                )
             return self.async_create_entry(title="", data=user_input)
 
         defaults = {**self.config_entry.data, **self.config_entry.options}

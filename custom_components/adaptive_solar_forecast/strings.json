@@ -1,5 +1,9 @@
 {
   "config": {
+    "error": {
+      "morning_azimuth_order": "Morning azimuths must be in increasing order: free <= shade start <= shade end <= recover.",
+      "afternoon_elevation_order": "Afternoon elevations must be in decreasing order: high >= mid >= low >= deep >= end."
+    },
     "step": {
       "user": {
         "title": "Adaptive Solar Forecast",
