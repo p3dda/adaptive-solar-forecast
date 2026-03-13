@@ -165,6 +165,8 @@ Current structure:
 - [`custom_components/adaptive_solar_forecast/model.py`](custom_components/adaptive_solar_forecast/model.py)
 - [`custom_components/adaptive_solar_forecast/sensor.py`](custom_components/adaptive_solar_forecast/sensor.py)
 
+Note: `ModelConfig` in `model.py` intentionally uses a non-slotted dataclass to keep attribute serialization stable.
+
 ## License
 
 This project is licensed under Apache-2.0. See [`LICENSE`](LICENSE).
