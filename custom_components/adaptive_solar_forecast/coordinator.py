@@ -69,10 +69,14 @@ class AdaptiveSolarForecastCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             raise UpdateFailed(f"Sun entity {self._config[CONF_SUN_ENTITY]} not found")
 
         try:
-            current_azimuth = float(sun_state.attributes["azimuth"])
-            current_elevation = float(sun_state.attributes["elevation"])
+            current_azimuth = float(sun_state.attributes.get("azimuth"))
+            current_elevation = float(sun_state.attributes.get("elevation"))
         except (KeyError, TypeError, ValueError) as err:
-            raise UpdateFailed("Sun entity is missing azimuth/elevation attributes") from err
+            available = self._format_attribute_keys(sun_state.attributes)
+            raise UpdateFailed(
+                "Sun entity is missing or has invalid azimuth/elevation attributes. "
+                f"Available attributes: {available}"
+            ) from err
 
         today_adjusted = adjust_forecast_dataset(observer, today_dataset, self._model)
         tomorrow_adjusted = adjust_forecast_dataset(observer, tomorrow_dataset, self._model) if tomorrow_dataset else None
@@ -108,12 +112,18 @@ class AdaptiveSolarForecastCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if state is None:
             raise UpdateFailed(f"Forecast entity {entity_id} not found")
 
-        watts = self._normalize_time_series(state.attributes.get("watts"))
-        watt_hours = self._normalize_time_series(state.attributes.get("wh_period"))
+        raw_watts = state.attributes.get("watts")
+        raw_watt_hours = state.attributes.get("wh_period")
+        watts = self._normalize_time_series(raw_watts)
+        watt_hours = self._normalize_time_series(raw_watt_hours)
 
         if not watts and not watt_hours:
+            available = self._format_attribute_keys(state.attributes)
             raise UpdateFailed(
-                f"Forecast entity {entity_id} must expose either 'watts' or 'wh_period' attributes"
+                "Forecast entity "
+                f"{entity_id} must expose either 'watts' or 'wh_period' as dicts "
+                f"(got watts={type(raw_watts).__name__}, wh_period={type(raw_watt_hours).__name__}). "
+                f"Available attributes: {available}"
             )
 
         try:
@@ -150,3 +160,11 @@ class AdaptiveSolarForecastCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             normalized[dt] = value
 
         return dict(sorted(normalized.items()))
+
+    @staticmethod
+    def _format_attribute_keys(attributes: dict[str, Any], limit: int = 20) -> str:
+        """Format attribute keys for error messages."""
+        keys = sorted(attributes.keys())
+        if len(keys) <= limit:
+            return ", ".join(keys)
+        return ", ".join(keys[:limit]) + f", ... (+{len(keys) - limit} more)"
