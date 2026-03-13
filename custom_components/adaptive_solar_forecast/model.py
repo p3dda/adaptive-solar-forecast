@@ -47,7 +47,7 @@ from .const import (
 )
 
 
-@dataclass(slots=True)
+@dataclass
 class ModelConfig:
     """Piecewise shading model parameters."""
 
