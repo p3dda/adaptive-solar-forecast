@@ -1,0 +1,25 @@
+calibrate:
+  name: Calibrate from history
+  description: >-
+    Analyze Recorder history to derive observed shading factors by comparing the
+    base forecast against actual production. Curtailed samples (at/above the clip
+    limit, or while the battery is full) are excluded. Returns suggestions only;
+    the configured model is never changed.
+  fields:
+    config_entry_id:
+      name: Config entry
+      description: Which Adaptive Solar Forecast entry to calibrate. Required only when several exist.
+      required: false
+      selector:
+        text:
+    days:
+      name: History window (days)
+      description: Number of past days of Recorder history to analyze. Defaults to the configured value.
+      required: false
+      selector:
+        number:
+          min: 1
+          max: 90
+          step: 1
+          unit_of_measurement: days
+          mode: box

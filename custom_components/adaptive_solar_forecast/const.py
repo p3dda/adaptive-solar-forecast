@@ -32,6 +32,14 @@ CONF_AFTERNOON_END_FACTOR: Final = "afternoon_end_factor"
 CONF_AFTERNOON_HORIZON_FACTOR: Final = "afternoon_horizon_factor"
 CONF_AFTER_SOLAR_NOON_ONLY: Final = "after_solar_noon_only"
 
+CONF_ACTUAL_PRODUCTION_ENTITY: Final = "actual_production_entity"
+CONF_CALIBRATION_CLIP_WATTS: Final = "calibration_clip_watts"
+CONF_CALIBRATION_DAYS: Final = "calibration_days"
+CONF_BATTERY_FULL_ENTITY: Final = "battery_full_entity"
+CONF_BATTERY_FULL_THRESHOLD: Final = "battery_full_threshold"
+
+SERVICE_CALIBRATE: Final = "calibrate"
+
 DEFAULT_NAME: Final = "Adaptive Solar Forecast"
 DEFAULT_SUN_ENTITY: Final = "sun.sun"
 DEFAULT_UPDATE_INTERVAL = 30
@@ -53,5 +61,18 @@ DEFAULT_AFTERNOON_DEEP_FACTOR = 0.30
 DEFAULT_AFTERNOON_END_FACTOR = 0.12
 DEFAULT_AFTERNOON_HORIZON_FACTOR = 0.03
 DEFAULT_AFTER_SOLAR_NOON_ONLY = True
+
+# Curtailment guard: a Balkonkraftwerk inverter clamps output (commonly to
+# 800 W) once the battery is full, so those samples reflect a legal/hardware
+# cap rather than shading and must be excluded from calibration.
+DEFAULT_CALIBRATION_CLIP_WATTS = 800.0
+DEFAULT_CALIBRATION_DAYS = 14
+DEFAULT_BATTERY_FULL_THRESHOLD = 100.0
+
+# Calibration sampling guards.
+CALIBRATION_MIN_EXPECTED_WATTS = 20.0  # ignore near-dawn/dusk noise
+CALIBRATION_CLIP_MARGIN = 0.98  # treat >= 98% of the clip as curtailed
+CALIBRATION_MAX_FACTOR = 1.0  # shading can only reduce output
+CALIBRATION_MIN_BUCKET_SAMPLES = 5  # below this, a suggestion is low-confidence
 
 DEFAULT_SCAN_INTERVAL = timedelta(minutes=DEFAULT_UPDATE_INTERVAL)
