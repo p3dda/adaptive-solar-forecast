@@ -155,6 +155,14 @@ samples at/above the configurable clip limit, or while the battery is full, are
 dropped before any factor is computed. Otherwise curtailment would be misread as
 afternoon shading.
 
+Observed factors are **normalized against the unshaded baseline**: times the
+model treats as essentially unshaded are used to measure and cancel any bias in
+the base forecast, so a forecast that systematically over- or under-predicts
+does not skew the shading factors. Each suggestion reports its raw factor, the
+interquartile spread, and a `confident` flag (enough samples and a tight
+spread) — trust the confident rows and treat wide-spread or low-count rows as
+indicative only.
+
 ## Roadmap
 
 Near-term (done):

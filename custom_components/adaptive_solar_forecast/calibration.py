@@ -21,6 +21,8 @@ import logging
 from statistics import median
 from typing import Any
 
+from .model import calculate_current_factor
+
 from astral import Observer
 from astral.sun import azimuth as solar_azimuth
 from astral.sun import elevation as solar_elevation
@@ -31,8 +33,11 @@ from homeassistant.util import dt as dt_util
 from .const import (
     CALIBRATION_CLIP_MARGIN,
     CALIBRATION_MAX_FACTOR,
+    CALIBRATION_MAX_SPREAD,
     CALIBRATION_MIN_BUCKET_SAMPLES,
     CALIBRATION_MIN_EXPECTED_WATTS,
+    CALIBRATION_REFERENCE_MIN_MODEL_FACTOR,
+    CALIBRATION_REFERENCE_MIN_SAMPLES,
     CONF_ACTUAL_PRODUCTION_ENTITY,
     CONF_BATTERY_FULL_ENTITY,
     CONF_BATTERY_FULL_THRESHOLD,
@@ -64,10 +69,18 @@ class _Sample:
 
 @dataclass(slots=True)
 class BucketSuggestion:
-    """Observed factor for one model bucket."""
+    """Observed factor for one model bucket.
+
+    ``observed_factor`` is normalized against the unshaded reference (so it is
+    corrected for forecast bias); ``raw_factor`` is the uncorrected median.
+    ``spread`` is the interquartile range of the raw ratios -- a wide spread
+    means weather/noise dominates and the suggestion should not be trusted.
+    """
 
     parameter: str
     observed_factor: float | None
+    raw_factor: float | None
+    spread: float | None
     sample_count: int
     configured_factor: float | None
     confident: bool = field(default=False)
@@ -77,7 +90,9 @@ class BucketSuggestion:
         return {
             "parameter": self.parameter,
             "observed_factor": self.observed_factor,
+            "raw_factor": self.raw_factor,
             "configured_factor": self.configured_factor,
+            "spread": self.spread,
             "sample_count": self.sample_count,
             "confident": self.confident,
         }
@@ -135,7 +150,7 @@ async def async_run_calibration(
         battery_threshold=battery_threshold,
     )
 
-    suggestions = _summarize(samples, model)
+    suggestions, reference = _summarize(samples, model)
 
     return {
         "window_days": window_days,
@@ -144,11 +159,13 @@ async def async_run_calibration(
         "forecast_entity": forecast_entity,
         "generated_at": end.isoformat(),
         "sample_stats": stats,
+        "reference": reference,
         "suggestions": [s.as_dict() for s in suggestions],
         "note": (
-            "Analysis only -- these are observed factors from history, not applied. "
-            "Curtailed samples (>= "
-            f"{clip_watts:g} W, or battery full) were excluded."
+            "Analysis only -- observed factors are normalized against the unshaded "
+            "reference and never applied. Curtailed samples (>= "
+            f"{clip_watts:g} W, or battery full) were excluded. Trust rows where "
+            "confident=true (enough samples and a tight spread)."
         ),
     }
 
@@ -275,9 +292,12 @@ def _build_samples(
     return samples, stats
 
 
-def _summarize(samples: list[_Sample], model: ModelConfig) -> list[BucketSuggestion]:
-    """Reduce samples to per-parameter observed factors."""
+def _summarize(
+    samples: list[_Sample], model: ModelConfig
+) -> tuple[list[BucketSuggestion], dict[str, Any]]:
+    """Reduce samples to per-parameter observed factors, normalized to baseline."""
     morning: list[float] = []
+    reference: list[float] = []
     afternoon_bands: dict[str, list[float]] = {
         "afternoon_mid_factor": [],
         "afternoon_low_factor": [],
@@ -287,6 +307,17 @@ def _summarize(samples: list[_Sample], model: ModelConfig) -> list[BucketSuggest
     }
 
     for sample in samples:
+        # Reference: times the model itself treats as essentially unshaded.
+        # Their observed ratio captures forecast bias, not shading.
+        if (
+            calculate_current_factor(
+                azimuth=sample.azimuth, elevation=sample.elevation, config=model
+            )
+            >= CALIBRATION_REFERENCE_MIN_MODEL_FACTOR
+        ):
+            reference.append(sample.factor)
+            continue
+
         # Morning: sun in the east (azimuth below solar noon) inside the shaded sector.
         if (
             sample.azimuth <= 180
@@ -303,8 +334,24 @@ def _summarize(samples: list[_Sample], model: ModelConfig) -> list[BucketSuggest
             if band is not None:
                 afternoon_bands[band].append(sample.factor)
 
+    reference_factor = (
+        median(reference) if len(reference) >= CALIBRATION_REFERENCE_MIN_SAMPLES else None
+    )
+    reference_info = {
+        "factor": round(reference_factor, 3) if reference_factor else None,
+        "sample_count": len(reference),
+        "applied": reference_factor is not None,
+        "note": (
+            "Unshaded baseline used to correct forecast bias."
+            if reference_factor is not None
+            else "Too few unshaded samples; factors are not bias-corrected."
+        ),
+    }
+
     suggestions: list[BucketSuggestion] = [
-        _bucket_suggestion("morning_deep_factor", morning, model.morning_deep_factor),
+        _bucket_suggestion(
+            "morning_deep_factor", morning, model.morning_deep_factor, reference_factor
+        ),
     ]
     configured = {
         "afternoon_mid_factor": model.afternoon_mid_factor,
@@ -315,9 +362,9 @@ def _summarize(samples: list[_Sample], model: ModelConfig) -> list[BucketSuggest
     }
     for parameter, values in afternoon_bands.items():
         suggestions.append(
-            _bucket_suggestion(parameter, values, configured[parameter])
+            _bucket_suggestion(parameter, values, configured[parameter], reference_factor)
         )
-    return suggestions
+    return suggestions, reference_info
 
 
 def _afternoon_band(elevation: float, model: ModelConfig) -> str | None:
@@ -336,19 +383,52 @@ def _afternoon_band(elevation: float, model: ModelConfig) -> str | None:
 
 
 def _bucket_suggestion(
-    parameter: str, values: list[float], configured: float
+    parameter: str,
+    values: list[float],
+    configured: float,
+    reference_factor: float | None,
 ) -> BucketSuggestion:
-    """Build a suggestion from a bucket's observed factors."""
+    """Build a suggestion from a bucket's observed factors.
+
+    The raw median is divided by the unshaded reference (when available) so the
+    factor is expressed relative to the observed baseline rather than the raw
+    forecast, then clamped to [0, 1]. A suggestion is only ``confident`` with
+    enough samples and a tight interquartile spread.
+    """
     if not values:
-        return BucketSuggestion(parameter, None, 0, configured, confident=False)
-    observed = min(median(values), CALIBRATION_MAX_FACTOR)
-    return BucketSuggestion(
-        parameter,
-        round(observed, 3),
-        len(values),
-        configured,
-        confident=len(values) >= CALIBRATION_MIN_BUCKET_SAMPLES,
+        return BucketSuggestion(parameter, None, None, None, 0, configured, confident=False)
+
+    raw = median(values)
+    spread = _iqr(values)
+    if reference_factor and reference_factor > 0:
+        normalized = raw / reference_factor
+    else:
+        normalized = raw
+    normalized = min(max(normalized, 0.0), CALIBRATION_MAX_FACTOR)
+
+    confident = (
+        len(values) >= CALIBRATION_MIN_BUCKET_SAMPLES and spread <= CALIBRATION_MAX_SPREAD
     )
+    return BucketSuggestion(
+        parameter=parameter,
+        observed_factor=round(normalized, 3),
+        raw_factor=round(raw, 3),
+        spread=round(spread, 3),
+        sample_count=len(values),
+        configured_factor=configured,
+        confident=confident,
+    )
+
+
+def _iqr(values: list[float]) -> float:
+    """Interquartile range (P75 - P25) as a simple dispersion measure."""
+    if len(values) < 2:
+        return 0.0
+    ordered = sorted(values)
+    n = len(ordered)
+    lower = ordered[: n // 2]
+    upper = ordered[(n + 1) // 2 :]
+    return median(upper) - median(lower)
 
 
 def _forecast_curves(states: list[Any]) -> list[tuple[datetime, dict[datetime, float]]]:
