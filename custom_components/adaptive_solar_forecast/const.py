@@ -74,7 +74,12 @@ DEFAULT_CALIBRATION_DAYS = 30
 DEFAULT_BATTERY_FULL_THRESHOLD = 100.0
 
 # Calibration sampling guards.
-CALIBRATION_MIN_EXPECTED_WATTS = 20.0  # ignore near-dawn/dusk noise
+CALIBRATION_MIN_EXPECTED_WATTS = 20.0  # absolute floor: ignore near-dawn/dusk noise
+# Relative floor: also require the expected power to be at least this fraction of
+# the forecast day's peak. Near the horizon the forecast is tiny and unreliable,
+# so actual/forecast explodes into noise; this scales the cutoff with system size
+# instead of a single absolute watt value.
+CALIBRATION_MIN_EXPECTED_PEAK_FRACTION = 0.05
 CALIBRATION_CLIP_MARGIN = 0.98  # treat >= 98% of the AC cap as "at the cap"
 CALIBRATION_BATTERY_IDLE_WATTS = 50.0  # |battery power| below this = not absorbing
 CALIBRATION_MAX_FACTOR = 1.0  # shading can only reduce output

@@ -39,6 +39,7 @@ from .const import (
     CALIBRATION_MAX_FACTOR,
     CALIBRATION_MAX_SPREAD,
     CALIBRATION_MIN_BUCKET_SAMPLES,
+    CALIBRATION_MIN_EXPECTED_PEAK_FRACTION,
     CALIBRATION_MIN_EXPECTED_WATTS,
     CALIBRATION_REFERENCE_MIN_MODEL_FACTOR,
     CALIBRATION_REFERENCE_MIN_SAMPLES,
@@ -325,7 +326,13 @@ def _build_samples(
             continue
 
         expected = _interpolate_curve(curve, when)
-        if expected is None or expected < CALIBRATION_MIN_EXPECTED_WATTS:
+        # Absolute floor plus a fraction of the day's peak: near the horizon the
+        # forecast is tiny and actual/forecast becomes noise, so drop it.
+        peak = max(curve.values(), default=0.0)
+        floor = max(
+            CALIBRATION_MIN_EXPECTED_WATTS, CALIBRATION_MIN_EXPECTED_PEAK_FRACTION * peak
+        )
+        if expected is None or expected < floor:
             stats["skipped_low_expected"] += 1
             continue
 
