@@ -23,9 +23,12 @@ What already exists:
 - deterministic morning azimuth damping
 - deterministic afternoon elevation damping
 - corrected forecast sensors for today and tomorrow
+- config/threshold validation, diagnostics, and detailed error messages
+- Recorder-based calibration analysis (suggestions only) via the `calibrate` service
 
 What does not exist yet:
-- automatic calibration from Recorder or InfluxDB
+- automatic *application* of calibration results to the model
+- InfluxDB-backed training data
 - adaptive or ML-based learning
 - long-term confidence scoring
 - production hardening and broad compatibility testing
@@ -134,16 +137,60 @@ The current MVP expects forecast sensors that expose Home Assistant-style struct
 
 The project was initially designed around forecast sensors like `energy_production_today` and `energy_production_tomorrow`, but it is intended to work with any forecast source that follows the same attribute pattern.
 
+## Calibration
+
+The `adaptive_solar_forecast.calibrate` service analyzes Recorder history to
+derive *observed* shading factors, comparing the base forecast against actual
+measured production bucketed by sun position. It returns suggestions only and
+never changes your configured model.
+
+To use it, set an **actual production entity** (and optionally a battery
+state-of-charge entity) in the integration options, then call the service from
+Developer Tools → Actions with "Return response". Suggested factors are also
+stored in the integration's diagnostics.
+
+Curtailment is handled explicitly. On a battery system, once the battery is
+**full** the only path for PV is the capped AC output (commonly 800 W), so the
+raw PV reading is clamped to that cap and hides the true generation. Those
+samples are excluded via an optional battery state-of-charge entity (SoC at/above
+a threshold). If you also configure a battery-power entity, a raw PV value at the
+cap while the battery is *not absorbing* (|power| ≈ 0) is treated as curtailed
+too — while raw PV above the cap *while the battery is charging* is genuine and
+kept. This is why the raw PV sensor must **not** be blindly clipped by value:
+its highest, uncurtailed samples are exactly the clear-sky peaks calibration
+needs.
+
+Three techniques make the suggestions trustworthy:
+
+- **Upper-envelope estimator** — clouds and curtailment only push production
+  *below* the true shading ceiling, so each factor is the high percentile (P85)
+  of observed `actual/forecast`, not the median. This ignores cloudy/throttled
+  samples instead of averaging them in.
+- **Reference normalization** — times the model treats as unshaded measure and
+  cancel base-forecast bias, so a forecast that systematically over- or
+  under-predicts does not skew the factors. If the reference sits well below 1.0,
+  your base forecast is over-predicting (check its declared kWp/tilt/azimuth).
+- **Per-band curtailment guard** — a band whose clear-sky peaks were mostly lost
+  to curtailment cannot be recovered even if the surviving samples agree, so it
+  is marked not `confident`.
+
+Each suggestion reports `raw_factor`, `spread`, `curtailment_ratio`, sample
+count, and a `confident` flag. **Trust the confident rows only.** On a battery
+system the high-sun early-afternoon bands are often not calibratable (their
+clear-sky production is always curtailed); the reliably observable signal is the
+morning sector and the low-sun late-afternoon bands.
+
 ## Roadmap
 
-Near-term:
-- validate config values and threshold ordering
-- make the sensor model and attributes more robust
-- add diagnostics and better error messages
-- replace placeholder brand assets with final artwork
+Near-term (done):
+- ~~validate config values and threshold ordering~~
+- ~~make the sensor model and attributes more robust~~
+- ~~add diagnostics and better error messages~~
+- ~~replace placeholder brand assets with final artwork~~
 
 Next phase:
-- calibrate the model from historical Recorder data
+- ~~calibrate the model from historical Recorder data~~ (analysis-only; done)
+- optionally apply calibration suggestions to the model automatically
 - support InfluxDB-backed training data
 - derive seasonal coefficients automatically
 

@@ -1,6 +1,7 @@
 {
   "domain": "adaptive_solar_forecast",
   "name": "Adaptive Solar Forecast",
+  "after_dependencies": ["recorder"],
   "codeowners": ["@p3dda"],
   "config_flow": true,
   "documentation": "https://github.com/p3dda/adaptive-solar-forecast",
@@ -9,5 +10,5 @@
   "issue_tracker": "https://github.com/p3dda/adaptive-solar-forecast/issues",
   "loggers": ["custom_components.adaptive_solar_forecast"],
   "requirements": ["astral==2.2"],
-  "version": "0.1.2"
+  "version": "0.2.0"
 }

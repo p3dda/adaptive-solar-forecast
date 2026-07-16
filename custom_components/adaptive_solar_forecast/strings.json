@@ -13,7 +13,13 @@
           "forecast_today_entity": "Forecast entity for today",
           "forecast_tomorrow_entity": "Forecast entity for tomorrow",
           "sun_entity": "Sun entity",
-          "update_interval": "Update interval in minutes"
+          "update_interval": "Update interval in minutes",
+          "actual_production_entity": "Actual production entity — raw PV/solar power (for calibration)",
+          "battery_full_entity": "Battery state-of-charge entity (optional; full battery = curtailed)",
+          "battery_full_threshold": "Battery-full threshold in % (samples at/above are excluded)",
+          "battery_power_entity": "Battery power entity — charge/discharge W (optional)",
+          "calibration_clip_watts": "AC output cap in watts (raw PV at this cap with an idle battery = curtailed)",
+          "calibration_days": "Calibration history window in days"
         }
       },
       "advanced": {
@@ -36,6 +42,22 @@
           "afternoon_end_factor": "Afternoon end factor",
           "afternoon_horizon_factor": "Afternoon horizon factor",
           "after_solar_noon_only": "Only apply afternoon damping after solar noon"
+        }
+      }
+    }
+  },
+  "services": {
+    "calibrate": {
+      "name": "Calibrate from history",
+      "description": "Analyze Recorder history to derive observed shading factors by comparing the base forecast against actual production. Curtailed samples are excluded. Returns suggestions only; the configured model is never changed.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Config entry",
+          "description": "Which Adaptive Solar Forecast entry to calibrate. Required only when several exist."
+        },
+        "days": {
+          "name": "History window (days)",
+          "description": "Number of past days of Recorder history to analyze. Defaults to the configured value."
         }
       }
     }

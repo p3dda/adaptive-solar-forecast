@@ -47,6 +47,7 @@ class AdaptiveSolarForecastCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         merged = {**config_entry.data, **config_entry.options}
         self._config = merged
         self._model = model_config_from_mapping(merged)
+        self.last_calibration: dict[str, Any] | None = None
 
         super().__init__(
             hass,
@@ -55,6 +56,16 @@ class AdaptiveSolarForecastCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             name=merged[CONF_NAME],
             update_interval=timedelta(minutes=int(merged[CONF_UPDATE_INTERVAL])),
         )
+
+    @property
+    def config(self) -> dict[str, Any]:
+        """Return the merged config entry data and options."""
+        return self._config
+
+    @property
+    def model(self) -> ModelConfig:
+        """Return the active shading model."""
+        return self._model
 
     async def _async_update_data(self) -> dict[str, Any]:
         """Fetch data from Home Assistant and build adjusted forecast outputs."""

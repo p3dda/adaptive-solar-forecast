@@ -11,6 +11,7 @@ from homeassistant import config_entries
 from homeassistant.helpers import selector
 
 from .const import (
+    CONF_ACTUAL_PRODUCTION_ENTITY,
     CONF_AFTERNOON_DEEP_ELEVATION,
     CONF_AFTERNOON_DEEP_FACTOR,
     CONF_AFTERNOON_END_ELEVATION,
@@ -22,6 +23,11 @@ from .const import (
     CONF_AFTERNOON_MID_ELEVATION,
     CONF_AFTERNOON_MID_FACTOR,
     CONF_AFTER_SOLAR_NOON_ONLY,
+    CONF_BATTERY_FULL_ENTITY,
+    CONF_BATTERY_FULL_THRESHOLD,
+    CONF_BATTERY_POWER_ENTITY,
+    CONF_CALIBRATION_CLIP_WATTS,
+    CONF_CALIBRATION_DAYS,
     CONF_FORECAST_TODAY_ENTITY,
     CONF_FORECAST_TOMORROW_ENTITY,
     CONF_MORNING_DEEP_FACTOR,
@@ -43,6 +49,9 @@ from .const import (
     DEFAULT_AFTERNOON_MID_ELEVATION,
     DEFAULT_AFTERNOON_MID_FACTOR,
     DEFAULT_AFTER_SOLAR_NOON_ONLY,
+    DEFAULT_BATTERY_FULL_THRESHOLD,
+    DEFAULT_CALIBRATION_CLIP_WATTS,
+    DEFAULT_CALIBRATION_DAYS,
     DEFAULT_MORNING_DEEP_FACTOR,
     DEFAULT_MORNING_FREE_AZIMUTH,
     DEFAULT_MORNING_RECOVER_AZIMUTH,
@@ -94,6 +103,30 @@ def _base_schema(defaults: Mapping[str, Any]) -> vol.Schema:
                 CONF_UPDATE_INTERVAL,
                 default=defaults.get(CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL),
             ): _number_selector(min_value=5, max_value=120, step=5),
+            vol.Optional(
+                CONF_ACTUAL_PRODUCTION_ENTITY,
+                default=defaults.get(CONF_ACTUAL_PRODUCTION_ENTITY),
+            ): _entity_selector("sensor"),
+            vol.Optional(
+                CONF_BATTERY_FULL_ENTITY,
+                default=defaults.get(CONF_BATTERY_FULL_ENTITY),
+            ): _entity_selector("sensor"),
+            vol.Optional(
+                CONF_BATTERY_FULL_THRESHOLD,
+                default=defaults.get(CONF_BATTERY_FULL_THRESHOLD, DEFAULT_BATTERY_FULL_THRESHOLD),
+            ): _number_selector(min_value=0, max_value=100, step=1),
+            vol.Optional(
+                CONF_BATTERY_POWER_ENTITY,
+                default=defaults.get(CONF_BATTERY_POWER_ENTITY),
+            ): _entity_selector("sensor"),
+            vol.Optional(
+                CONF_CALIBRATION_CLIP_WATTS,
+                default=defaults.get(CONF_CALIBRATION_CLIP_WATTS, DEFAULT_CALIBRATION_CLIP_WATTS),
+            ): _number_selector(min_value=0, max_value=20000, step=10),
+            vol.Optional(
+                CONF_CALIBRATION_DAYS,
+                default=defaults.get(CONF_CALIBRATION_DAYS, DEFAULT_CALIBRATION_DAYS),
+            ): _number_selector(min_value=1, max_value=90, step=1),
         }
     )
 

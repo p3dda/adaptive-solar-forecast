@@ -39,6 +39,7 @@ async def async_get_config_entry_diagnostics(
             ),
         },
         "data": _summarize_data(data),
+        "last_calibration": coordinator.last_calibration if coordinator else None,
     }
 
 
