@@ -221,7 +221,7 @@ class AdaptiveSolarForecastConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         config_entry: config_entries.ConfigEntry,
     ) -> "AdaptiveSolarForecastOptionsFlow":
         """Create the options flow."""
-        return AdaptiveSolarForecastOptionsFlow(config_entry)
+        return AdaptiveSolarForecastOptionsFlow()
 
     async def async_step_user(self, user_input: dict[str, Any] | None = None):
         """Handle the initial step."""
@@ -251,10 +251,6 @@ class AdaptiveSolarForecastConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
 class AdaptiveSolarForecastOptionsFlow(config_entries.OptionsFlow):
     """Handle options for Adaptive Solar Forecast."""
-
-    def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
-        """Initialize options flow."""
-        self.config_entry = config_entry
 
     async def async_step_init(self, user_input: dict[str, Any] | None = None):
         """Manage the options."""

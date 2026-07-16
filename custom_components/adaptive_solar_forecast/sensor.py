@@ -93,8 +93,8 @@ class AdaptiveSolarForecastSensor(CoordinatorEntity[AdaptiveSolarForecastCoordin
         self._attr_device_info = {
             "identifiers": {(DOMAIN, entry.entry_id)},
             "name": entry.title,
-            "manufacturer": "OpenAI",
-            "model": "Adaptive Solar Forecast MVP",
+            "manufacturer": "Adaptive Solar Forecast",
+            "model": "Adaptive Solar Forecast",
         }
 
     @property
