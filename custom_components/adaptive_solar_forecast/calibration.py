@@ -32,6 +32,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.util import dt as dt_util
 
 from .const import (
+    CALIBRATION_BATTERY_IDLE_WATTS,
     CALIBRATION_CLIP_MARGIN,
     CALIBRATION_ENVELOPE_PERCENTILE,
     CALIBRATION_MAX_CURTAILMENT_RATIO,
@@ -41,10 +42,10 @@ from .const import (
     CALIBRATION_MIN_EXPECTED_WATTS,
     CALIBRATION_REFERENCE_MIN_MODEL_FACTOR,
     CALIBRATION_REFERENCE_MIN_SAMPLES,
-    CONF_AC_OUTPUT_ENTITY,
     CONF_ACTUAL_PRODUCTION_ENTITY,
     CONF_BATTERY_FULL_ENTITY,
     CONF_BATTERY_FULL_THRESHOLD,
+    CONF_BATTERY_POWER_ENTITY,
     CONF_CALIBRATION_CLIP_WATTS,
     CONF_CALIBRATION_DAYS,
     CONF_FORECAST_TODAY_ENTITY,
@@ -125,8 +126,8 @@ async def async_run_calibration(
 
     window_days = int(days or config.get(CONF_CALIBRATION_DAYS, DEFAULT_CALIBRATION_DAYS))
     clip_watts = float(config.get(CONF_CALIBRATION_CLIP_WATTS, DEFAULT_CALIBRATION_CLIP_WATTS))
-    ac_output_entity = config.get(CONF_AC_OUTPUT_ENTITY)
     battery_entity = config.get(CONF_BATTERY_FULL_ENTITY)
+    battery_power_entity = config.get(CONF_BATTERY_POWER_ENTITY)
     battery_threshold = float(
         config.get(CONF_BATTERY_FULL_THRESHOLD, DEFAULT_BATTERY_FULL_THRESHOLD)
     )
@@ -141,7 +142,7 @@ async def async_run_calibration(
         forecast_entity=forecast_entity,
         actual_entity=actual_entity,
         battery_entity=battery_entity,
-        ac_output_entity=ac_output_entity,
+        battery_power_entity=battery_power_entity,
     )
 
     observer = Observer(
@@ -156,31 +157,25 @@ async def async_run_calibration(
         forecast_states=histories["forecast"],
         actual_states=histories["actual"],
         battery_states=histories.get("battery"),
-        ac_output_states=histories.get("ac_output"),
+        battery_power_states=histories.get("battery_power"),
         clip_watts=clip_watts,
         battery_threshold=battery_threshold,
     )
 
     suggestions, reference = _summarize(samples, model, band_curtailed)
 
-    if ac_output_entity:
-        curtail_note = (
-            f"Curtailed samples (AC output >= {clip_watts:g} W, or battery full) "
-            "were excluded."
-        )
-    else:
-        curtail_note = (
-            "No AC-output entity configured, so no clip was applied to the raw "
-            "production sensor; curtailment is handled by the upper-envelope "
-            "estimator and the battery-full exclusion."
-        )
+    curtail_note = (
+        "Curtailed samples were excluded: battery full (raw PV is then clamped to "
+        f"the ~{clip_watts:g} W AC cap), or raw PV at the cap while the battery is "
+        "not absorbing. Uncurtailed samples above the cap (battery charging) are "
+        "kept."
+    )
 
     return {
         "window_days": window_days,
         "clip_watts": clip_watts,
         "actual_entity": actual_entity,
         "forecast_entity": forecast_entity,
-        "ac_output_entity": ac_output_entity,
         "generated_at": end.isoformat(),
         "sample_stats": stats,
         "reference": reference,
@@ -202,7 +197,7 @@ async def _fetch_history(
     forecast_entity: str,
     actual_entity: str,
     battery_entity: str | None,
-    ac_output_entity: str | None,
+    battery_power_entity: str | None,
 ) -> dict[str, list[Any]]:
     """Fetch recorder history for the entities involved in calibration."""
     try:
@@ -213,8 +208,8 @@ async def _fetch_history(
     entity_ids = [forecast_entity, actual_entity]
     if battery_entity:
         entity_ids.append(battery_entity)
-    if ac_output_entity:
-        entity_ids.append(ac_output_entity)
+    if battery_power_entity:
+        entity_ids.append(battery_power_entity)
 
     states = await get_instance(hass).async_add_executor_job(
         history.get_significant_states,
@@ -246,8 +241,8 @@ async def _fetch_history(
     }
     if battery_entity:
         result["battery"] = states.get(battery_entity) or []
-    if ac_output_entity:
-        result["ac_output"] = states.get(ac_output_entity) or []
+    if battery_power_entity:
+        result["battery_power"] = states.get(battery_power_entity) or []
     return result
 
 
@@ -258,7 +253,7 @@ def _build_samples(
     forecast_states: list[Any],
     actual_states: list[Any],
     battery_states: list[Any] | None,
-    ac_output_states: list[Any] | None,
+    battery_power_states: list[Any] | None,
     clip_watts: float,
     battery_threshold: float,
 ) -> tuple[list[_Sample], dict[str, int], dict[str, int]]:
@@ -271,10 +266,10 @@ def _build_samples(
     forecast_times = [when for when, _ in forecast_curves]
     battery_series = _numeric_series(battery_states) if battery_states else []
     battery_times = [when for when, _ in battery_series]
-    # The clip applies to the AC output (which is what the inverter clamps), not
-    # to a raw PV sensor that legitimately exceeds the AC cap when uncurtailed.
-    ac_series = _numeric_series(ac_output_states) if ac_output_states else []
-    ac_times = [when for when, _ in ac_series]
+    # Battery power distinguishes a raw PV value at the AC cap that is curtailed
+    # (battery full, not absorbing) from one that is genuine (battery charging).
+    power_series = _numeric_series(battery_power_states) if battery_power_states else []
+    power_times = [when for when, _ in power_series]
 
     clip_limit = clip_watts * CALIBRATION_CLIP_MARGIN
 
@@ -300,20 +295,26 @@ def _build_samples(
         azimuth = solar_azimuth(observer, when)
         band = _classify(azimuth, elevation, model)
 
-        # Curtailment / battery-full samples are dropped, but recorded per band:
-        # a band that loses its high-production samples this way cannot be trusted.
-        if ac_series:
-            ac_output = _value_at(ac_times, ac_series, when)
-            if ac_output is not None and ac_output >= clip_limit:
-                stats["skipped_curtailed"] += 1
-                if band is not None:
-                    band_curtailed[band] += 1
-                continue
-
+        # Curtailment samples are dropped, but recorded per band: a band that
+        # loses its clear-sky peaks this way cannot be trusted.
+        #
+        # 1) Battery full -> the only PV path is the capped AC output, so raw PV
+        #    is clamped and hides the true generation.
         if battery_series:
             soc = _value_at(battery_times, battery_series, when)
             if soc is not None and soc >= battery_threshold:
                 stats["skipped_battery_full"] += 1
+                if band is not None:
+                    band_curtailed[band] += 1
+                continue
+
+        # 2) Raw PV pinned at the AC cap while the battery is not absorbing power
+        #    is curtailment too (catches a lagging/again-below-100 SoC reading).
+        #    Raw PV above the cap *while charging* is genuine and kept.
+        if power_series and actual >= clip_limit:
+            power = _value_at(power_times, power_series, when)
+            if power is not None and abs(power) <= CALIBRATION_BATTERY_IDLE_WATTS:
+                stats["skipped_curtailed"] += 1
                 if band is not None:
                     band_curtailed[band] += 1
                 continue

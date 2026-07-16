@@ -33,11 +33,11 @@ CONF_AFTERNOON_HORIZON_FACTOR: Final = "afternoon_horizon_factor"
 CONF_AFTER_SOLAR_NOON_ONLY: Final = "after_solar_noon_only"
 
 CONF_ACTUAL_PRODUCTION_ENTITY: Final = "actual_production_entity"
-CONF_AC_OUTPUT_ENTITY: Final = "ac_output_entity"
 CONF_CALIBRATION_CLIP_WATTS: Final = "calibration_clip_watts"
 CONF_CALIBRATION_DAYS: Final = "calibration_days"
 CONF_BATTERY_FULL_ENTITY: Final = "battery_full_entity"
 CONF_BATTERY_FULL_THRESHOLD: Final = "battery_full_threshold"
+CONF_BATTERY_POWER_ENTITY: Final = "battery_power_entity"
 
 SERVICE_CALIBRATE: Final = "calibrate"
 
@@ -63,17 +63,20 @@ DEFAULT_AFTERNOON_END_FACTOR = 0.12
 DEFAULT_AFTERNOON_HORIZON_FACTOR = 0.03
 DEFAULT_AFTER_SOLAR_NOON_ONLY = True
 
-# Curtailment guard: a Balkonkraftwerk inverter clamps its AC output (commonly
-# to 800 W). When an AC-output entity is configured, samples at/above this clip
-# are excluded as curtailed. Note: this must NOT be applied to a raw PV/solar
-# input sensor, which routinely exceeds the AC cap when uncurtailed.
+# Curtailment guard. When the battery is full, the only path for PV is the AC
+# output (commonly capped at 800 W), so raw PV is clamped to that cap and hides
+# the true generation. Such samples are excluded. The clip value is the AC cap,
+# used together with the battery-power signal: raw PV at the cap while the
+# battery is not absorbing means curtailment. Raw PV above the cap while the
+# battery IS charging is genuine (uncurtailed) and kept.
 DEFAULT_CALIBRATION_CLIP_WATTS = 800.0
 DEFAULT_CALIBRATION_DAYS = 30
 DEFAULT_BATTERY_FULL_THRESHOLD = 100.0
 
 # Calibration sampling guards.
 CALIBRATION_MIN_EXPECTED_WATTS = 20.0  # ignore near-dawn/dusk noise
-CALIBRATION_CLIP_MARGIN = 0.98  # treat >= 98% of the clip as curtailed
+CALIBRATION_CLIP_MARGIN = 0.98  # treat >= 98% of the AC cap as "at the cap"
+CALIBRATION_BATTERY_IDLE_WATTS = 50.0  # |battery power| below this = not absorbing
 CALIBRATION_MAX_FACTOR = 1.0  # shading can only reduce output
 CALIBRATION_MIN_BUCKET_SAMPLES = 30  # below this, a suggestion is low-confidence
 CALIBRATION_MAX_SPREAD = 0.25  # IQR above this means the bucket is too noisy to trust

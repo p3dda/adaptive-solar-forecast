@@ -15,11 +15,11 @@
           "sun_entity": "Sun entity",
           "update_interval": "Update interval in minutes",
           "actual_production_entity": "Actual production entity — raw PV/solar power (for calibration)",
-          "ac_output_entity": "AC output entity (optional; the clip is applied to this, not raw PV)",
-          "calibration_clip_watts": "AC output curtailment clip in watts (samples at/above are excluded)",
-          "calibration_days": "Calibration history window in days",
-          "battery_full_entity": "Battery state-of-charge entity (optional)",
-          "battery_full_threshold": "Battery-full threshold (samples at/above are excluded)"
+          "battery_full_entity": "Battery state-of-charge entity (optional; full battery = curtailed)",
+          "battery_full_threshold": "Battery-full threshold in % (samples at/above are excluded)",
+          "battery_power_entity": "Battery power entity — charge/discharge W (optional)",
+          "calibration_clip_watts": "AC output cap in watts (raw PV at this cap with an idle battery = curtailed)",
+          "calibration_days": "Calibration history window in days"
         }
       },
       "advanced": {

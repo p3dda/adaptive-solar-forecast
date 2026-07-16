@@ -149,13 +149,16 @@ state-of-charge entity) in the integration options, then call the service from
 Developer Tools → Actions with "Return response". Suggested factors are also
 stored in the integration's diagnostics.
 
-Curtailment is handled explicitly, because on a battery system the inverter
-clamps its **AC output** (commonly to 800 W) and throttles PV harvest once the
-battery is full. If you configure an optional AC-output entity, samples where it
-is at/above the clip limit are dropped; samples while the battery is full (via an
-optional SoC entity) are dropped too. Note that the clip must **not** be applied
-to a raw PV/solar-input sensor, which legitimately exceeds the AC cap when
-uncurtailed — configure the AC-output entity separately for that.
+Curtailment is handled explicitly. On a battery system, once the battery is
+**full** the only path for PV is the capped AC output (commonly 800 W), so the
+raw PV reading is clamped to that cap and hides the true generation. Those
+samples are excluded via an optional battery state-of-charge entity (SoC at/above
+a threshold). If you also configure a battery-power entity, a raw PV value at the
+cap while the battery is *not absorbing* (|power| ≈ 0) is treated as curtailed
+too — while raw PV above the cap *while the battery is charging* is genuine and
+kept. This is why the raw PV sensor must **not** be blindly clipped by value:
+its highest, uncurtailed samples are exactly the clear-sky peaks calibration
+needs.
 
 Three techniques make the suggestions trustworthy:
 

@@ -12,7 +12,6 @@ from homeassistant.helpers import selector
 
 from .const import (
     CONF_ACTUAL_PRODUCTION_ENTITY,
-    CONF_AC_OUTPUT_ENTITY,
     CONF_AFTERNOON_DEEP_ELEVATION,
     CONF_AFTERNOON_DEEP_FACTOR,
     CONF_AFTERNOON_END_ELEVATION,
@@ -26,6 +25,7 @@ from .const import (
     CONF_AFTER_SOLAR_NOON_ONLY,
     CONF_BATTERY_FULL_ENTITY,
     CONF_BATTERY_FULL_THRESHOLD,
+    CONF_BATTERY_POWER_ENTITY,
     CONF_CALIBRATION_CLIP_WATTS,
     CONF_CALIBRATION_DAYS,
     CONF_FORECAST_TODAY_ENTITY,
@@ -108,8 +108,16 @@ def _base_schema(defaults: Mapping[str, Any]) -> vol.Schema:
                 default=defaults.get(CONF_ACTUAL_PRODUCTION_ENTITY),
             ): _entity_selector("sensor"),
             vol.Optional(
-                CONF_AC_OUTPUT_ENTITY,
-                default=defaults.get(CONF_AC_OUTPUT_ENTITY),
+                CONF_BATTERY_FULL_ENTITY,
+                default=defaults.get(CONF_BATTERY_FULL_ENTITY),
+            ): _entity_selector("sensor"),
+            vol.Optional(
+                CONF_BATTERY_FULL_THRESHOLD,
+                default=defaults.get(CONF_BATTERY_FULL_THRESHOLD, DEFAULT_BATTERY_FULL_THRESHOLD),
+            ): _number_selector(min_value=0, max_value=100, step=1),
+            vol.Optional(
+                CONF_BATTERY_POWER_ENTITY,
+                default=defaults.get(CONF_BATTERY_POWER_ENTITY),
             ): _entity_selector("sensor"),
             vol.Optional(
                 CONF_CALIBRATION_CLIP_WATTS,
@@ -119,14 +127,6 @@ def _base_schema(defaults: Mapping[str, Any]) -> vol.Schema:
                 CONF_CALIBRATION_DAYS,
                 default=defaults.get(CONF_CALIBRATION_DAYS, DEFAULT_CALIBRATION_DAYS),
             ): _number_selector(min_value=1, max_value=90, step=1),
-            vol.Optional(
-                CONF_BATTERY_FULL_ENTITY,
-                default=defaults.get(CONF_BATTERY_FULL_ENTITY),
-            ): _entity_selector("sensor"),
-            vol.Optional(
-                CONF_BATTERY_FULL_THRESHOLD,
-                default=defaults.get(CONF_BATTERY_FULL_THRESHOLD, DEFAULT_BATTERY_FULL_THRESHOLD),
-            ): _number_selector(min_value=0, max_value=100, step=1),
         }
     )
 
