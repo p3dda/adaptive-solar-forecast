@@ -15,6 +15,7 @@ afternoon shading and wrongly damp the forecast.
 from __future__ import annotations
 
 from bisect import bisect_right
+from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 import logging
@@ -32,12 +33,15 @@ from homeassistant.util import dt as dt_util
 
 from .const import (
     CALIBRATION_CLIP_MARGIN,
+    CALIBRATION_ENVELOPE_PERCENTILE,
+    CALIBRATION_MAX_CURTAILMENT_RATIO,
     CALIBRATION_MAX_FACTOR,
     CALIBRATION_MAX_SPREAD,
     CALIBRATION_MIN_BUCKET_SAMPLES,
     CALIBRATION_MIN_EXPECTED_WATTS,
     CALIBRATION_REFERENCE_MIN_MODEL_FACTOR,
     CALIBRATION_REFERENCE_MIN_SAMPLES,
+    CONF_AC_OUTPUT_ENTITY,
     CONF_ACTUAL_PRODUCTION_ENTITY,
     CONF_BATTERY_FULL_ENTITY,
     CONF_BATTERY_FULL_THRESHOLD,
@@ -65,6 +69,7 @@ class _Sample:
     azimuth: float
     elevation: float
     factor: float
+    band: str | None
 
 
 @dataclass(slots=True)
@@ -83,6 +88,7 @@ class BucketSuggestion:
     spread: float | None
     sample_count: int
     configured_factor: float | None
+    curtailment_ratio: float | None = field(default=None)
     confident: bool = field(default=False)
 
     def as_dict(self) -> dict[str, Any]:
@@ -93,6 +99,7 @@ class BucketSuggestion:
             "raw_factor": self.raw_factor,
             "configured_factor": self.configured_factor,
             "spread": self.spread,
+            "curtailment_ratio": self.curtailment_ratio,
             "sample_count": self.sample_count,
             "confident": self.confident,
         }
@@ -118,6 +125,7 @@ async def async_run_calibration(
 
     window_days = int(days or config.get(CONF_CALIBRATION_DAYS, DEFAULT_CALIBRATION_DAYS))
     clip_watts = float(config.get(CONF_CALIBRATION_CLIP_WATTS, DEFAULT_CALIBRATION_CLIP_WATTS))
+    ac_output_entity = config.get(CONF_AC_OUTPUT_ENTITY)
     battery_entity = config.get(CONF_BATTERY_FULL_ENTITY)
     battery_threshold = float(
         config.get(CONF_BATTERY_FULL_THRESHOLD, DEFAULT_BATTERY_FULL_THRESHOLD)
@@ -133,6 +141,7 @@ async def async_run_calibration(
         forecast_entity=forecast_entity,
         actual_entity=actual_entity,
         battery_entity=battery_entity,
+        ac_output_entity=ac_output_entity,
     )
 
     observer = Observer(
@@ -141,31 +150,46 @@ async def async_run_calibration(
         elevation=hass.config.elevation,
     )
 
-    samples, stats = _build_samples(
+    samples, stats, band_curtailed = _build_samples(
         observer=observer,
+        model=model,
         forecast_states=histories["forecast"],
         actual_states=histories["actual"],
         battery_states=histories.get("battery"),
+        ac_output_states=histories.get("ac_output"),
         clip_watts=clip_watts,
         battery_threshold=battery_threshold,
     )
 
-    suggestions, reference = _summarize(samples, model)
+    suggestions, reference = _summarize(samples, model, band_curtailed)
+
+    if ac_output_entity:
+        curtail_note = (
+            f"Curtailed samples (AC output >= {clip_watts:g} W, or battery full) "
+            "were excluded."
+        )
+    else:
+        curtail_note = (
+            "No AC-output entity configured, so no clip was applied to the raw "
+            "production sensor; curtailment is handled by the upper-envelope "
+            "estimator and the battery-full exclusion."
+        )
 
     return {
         "window_days": window_days,
         "clip_watts": clip_watts,
         "actual_entity": actual_entity,
         "forecast_entity": forecast_entity,
+        "ac_output_entity": ac_output_entity,
         "generated_at": end.isoformat(),
         "sample_stats": stats,
         "reference": reference,
         "suggestions": [s.as_dict() for s in suggestions],
         "note": (
-            "Analysis only -- observed factors are normalized against the unshaded "
-            "reference and never applied. Curtailed samples (>= "
-            f"{clip_watts:g} W, or battery full) were excluded. Trust rows where "
-            "confident=true (enough samples and a tight spread)."
+            "Analysis only -- observed factors are the upper envelope (P"
+            f"{int(CALIBRATION_ENVELOPE_PERCENTILE * 100)}) of actual/forecast, "
+            "normalized against the unshaded reference, and never applied. "
+            f"{curtail_note} Trust rows where confident=true."
         ),
     }
 
@@ -178,6 +202,7 @@ async def _fetch_history(
     forecast_entity: str,
     actual_entity: str,
     battery_entity: str | None,
+    ac_output_entity: str | None,
 ) -> dict[str, list[Any]]:
     """Fetch recorder history for the entities involved in calibration."""
     try:
@@ -188,6 +213,8 @@ async def _fetch_history(
     entity_ids = [forecast_entity, actual_entity]
     if battery_entity:
         entity_ids.append(battery_entity)
+    if ac_output_entity:
+        entity_ids.append(ac_output_entity)
 
     states = await get_instance(hass).async_add_executor_job(
         history.get_significant_states,
@@ -219,27 +246,40 @@ async def _fetch_history(
     }
     if battery_entity:
         result["battery"] = states.get(battery_entity) or []
+    if ac_output_entity:
+        result["ac_output"] = states.get(ac_output_entity) or []
     return result
 
 
 def _build_samples(
     *,
     observer: Observer,
+    model: ModelConfig,
     forecast_states: list[Any],
     actual_states: list[Any],
     battery_states: list[Any] | None,
+    ac_output_states: list[Any] | None,
     clip_watts: float,
     battery_threshold: float,
-) -> tuple[list[_Sample], dict[str, int]]:
-    """Align actual production against expected power, filtering curtailment."""
+) -> tuple[list[_Sample], dict[str, int], dict[str, int]]:
+    """Align actual production against expected power, filtering curtailment.
+
+    Also tracks, per band, how many samples were dropped for curtailment/battery
+    so the caller can tell when a band's clear-sky peaks are missing.
+    """
     forecast_curves = _forecast_curves(forecast_states)
     forecast_times = [when for when, _ in forecast_curves]
     battery_series = _numeric_series(battery_states) if battery_states else []
     battery_times = [when for when, _ in battery_series]
+    # The clip applies to the AC output (which is what the inverter clamps), not
+    # to a raw PV sensor that legitimately exceeds the AC cap when uncurtailed.
+    ac_series = _numeric_series(ac_output_states) if ac_output_states else []
+    ac_times = [when for when, _ in ac_series]
 
     clip_limit = clip_watts * CALIBRATION_CLIP_MARGIN
 
     samples: list[_Sample] = []
+    band_curtailed: dict[str, int] = defaultdict(int)
     stats = {
         "considered": 0,
         "used": 0,
@@ -253,14 +293,29 @@ def _build_samples(
     for when, actual in _numeric_series(actual_states):
         stats["considered"] += 1
 
-        if actual >= clip_limit:
-            stats["skipped_curtailed"] += 1
+        elevation = solar_elevation(observer, when)
+        if elevation <= 0:
+            stats["skipped_invalid"] += 1
             continue
+        azimuth = solar_azimuth(observer, when)
+        band = _classify(azimuth, elevation, model)
+
+        # Curtailment / battery-full samples are dropped, but recorded per band:
+        # a band that loses its high-production samples this way cannot be trusted.
+        if ac_series:
+            ac_output = _value_at(ac_times, ac_series, when)
+            if ac_output is not None and ac_output >= clip_limit:
+                stats["skipped_curtailed"] += 1
+                if band is not None:
+                    band_curtailed[band] += 1
+                continue
 
         if battery_series:
             soc = _value_at(battery_times, battery_series, when)
             if soc is not None and soc >= battery_threshold:
                 stats["skipped_battery_full"] += 1
+                if band is not None:
+                    band_curtailed[band] += 1
                 continue
 
         curve = _curve_at(forecast_times, forecast_curves, when)
@@ -273,97 +328,87 @@ def _build_samples(
             stats["skipped_low_expected"] += 1
             continue
 
-        elevation = solar_elevation(observer, when)
-        if elevation <= 0:
-            stats["skipped_invalid"] += 1
-            continue
-
-        azimuth = solar_azimuth(observer, when)
         samples.append(
             _Sample(
                 when=when,
                 azimuth=azimuth,
                 elevation=elevation,
                 factor=actual / expected,
+                band=band,
             )
         )
         stats["used"] += 1
 
-    return samples, stats
+    return samples, stats, dict(band_curtailed)
+
+
+def _classify(azimuth: float, elevation: float, model: ModelConfig) -> str | None:
+    """Assign a sample to a calibration bucket (or the unshaded reference)."""
+    if (
+        calculate_current_factor(azimuth=azimuth, elevation=elevation, config=model)
+        >= CALIBRATION_REFERENCE_MIN_MODEL_FACTOR
+    ):
+        return "reference"
+    if (
+        azimuth <= 180
+        and model.morning_shade_start_azimuth <= azimuth <= model.morning_recover_azimuth
+    ):
+        return "morning_deep_factor"
+    if azimuth > 180:
+        return _afternoon_band(elevation, model)
+    return None
 
 
 def _summarize(
-    samples: list[_Sample], model: ModelConfig
+    samples: list[_Sample], model: ModelConfig, band_curtailed: dict[str, int]
 ) -> tuple[list[BucketSuggestion], dict[str, Any]]:
     """Reduce samples to per-parameter observed factors, normalized to baseline."""
-    morning: list[float] = []
     reference: list[float] = []
-    afternoon_bands: dict[str, list[float]] = {
-        "afternoon_mid_factor": [],
-        "afternoon_low_factor": [],
-        "afternoon_deep_factor": [],
-        "afternoon_end_factor": [],
-        "afternoon_horizon_factor": [],
-    }
+    band_values: dict[str, list[float]] = defaultdict(list)
 
     for sample in samples:
-        # Reference: times the model itself treats as essentially unshaded.
-        # Their observed ratio captures forecast bias, not shading.
-        if (
-            calculate_current_factor(
-                azimuth=sample.azimuth, elevation=sample.elevation, config=model
-            )
-            >= CALIBRATION_REFERENCE_MIN_MODEL_FACTOR
-        ):
+        if sample.band == "reference":
             reference.append(sample.factor)
-            continue
-
-        # Morning: sun in the east (azimuth below solar noon) inside the shaded sector.
-        if (
-            sample.azimuth <= 180
-            and model.morning_shade_start_azimuth
-            <= sample.azimuth
-            <= model.morning_recover_azimuth
-        ):
-            morning.append(sample.factor)
-            continue
-
-        # Afternoon: west of solar noon, bucketed by elevation band.
-        if sample.azimuth > 180:
-            band = _afternoon_band(sample.elevation, model)
-            if band is not None:
-                afternoon_bands[band].append(sample.factor)
+        elif sample.band is not None:
+            band_values[sample.band].append(sample.factor)
 
     reference_factor = (
-        median(reference) if len(reference) >= CALIBRATION_REFERENCE_MIN_SAMPLES else None
+        _percentile(reference, CALIBRATION_ENVELOPE_PERCENTILE)
+        if len(reference) >= CALIBRATION_REFERENCE_MIN_SAMPLES
+        else None
     )
     reference_info = {
         "factor": round(reference_factor, 3) if reference_factor else None,
+        "median": round(median(reference), 3) if reference else None,
         "sample_count": len(reference),
         "applied": reference_factor is not None,
         "note": (
-            "Unshaded baseline used to correct forecast bias."
+            "Unshaded upper-envelope baseline used to correct forecast bias. If "
+            "this is well below 1.0, the base forecast likely over-predicts "
+            "(check its declared kWp/tilt/azimuth)."
             if reference_factor is not None
             else "Too few unshaded samples; factors are not bias-corrected."
         ),
     }
 
-    suggestions: list[BucketSuggestion] = [
-        _bucket_suggestion(
-            "morning_deep_factor", morning, model.morning_deep_factor, reference_factor
-        ),
-    ]
     configured = {
+        "morning_deep_factor": model.morning_deep_factor,
         "afternoon_mid_factor": model.afternoon_mid_factor,
         "afternoon_low_factor": model.afternoon_low_factor,
         "afternoon_deep_factor": model.afternoon_deep_factor,
         "afternoon_end_factor": model.afternoon_end_factor,
         "afternoon_horizon_factor": model.afternoon_horizon_factor,
     }
-    for parameter, values in afternoon_bands.items():
-        suggestions.append(
-            _bucket_suggestion(parameter, values, configured[parameter], reference_factor)
+    suggestions = [
+        _bucket_suggestion(
+            parameter,
+            band_values.get(parameter, []),
+            configured_factor,
+            reference_factor,
+            band_curtailed.get(parameter, 0),
         )
+        for parameter, configured_factor in configured.items()
+    ]
     return suggestions, reference_info
 
 
@@ -387,18 +432,24 @@ def _bucket_suggestion(
     values: list[float],
     configured: float,
     reference_factor: float | None,
+    curtailed_count: int,
 ) -> BucketSuggestion:
     """Build a suggestion from a bucket's observed factors.
 
-    The raw median is divided by the unshaded reference (when available) so the
+    The estimator is the upper envelope (a high percentile) of actual/forecast,
+    because clouds and curtailment only push production below the true shading
+    ceiling. It is divided by the unshaded reference (when available) so the
     factor is expressed relative to the observed baseline rather than the raw
     forecast, then clamped to [0, 1]. A suggestion is only ``confident`` with
-    enough samples and a tight interquartile spread.
+    enough samples, a tight interquartile spread, and a low share of its samples
+    lost to curtailment -- otherwise the clear-sky peaks it needs are missing.
     """
     if not values:
-        return BucketSuggestion(parameter, None, None, None, 0, configured, confident=False)
+        return BucketSuggestion(
+            parameter, None, None, None, 0, configured, curtailment_ratio=None
+        )
 
-    raw = median(values)
+    raw = _percentile(values, CALIBRATION_ENVELOPE_PERCENTILE)
     spread = _iqr(values)
     if reference_factor and reference_factor > 0:
         normalized = raw / reference_factor
@@ -406,8 +457,12 @@ def _bucket_suggestion(
         normalized = raw
     normalized = min(max(normalized, 0.0), CALIBRATION_MAX_FACTOR)
 
+    total = len(values) + curtailed_count
+    curtailment_ratio = curtailed_count / total if total else 0.0
     confident = (
-        len(values) >= CALIBRATION_MIN_BUCKET_SAMPLES and spread <= CALIBRATION_MAX_SPREAD
+        len(values) >= CALIBRATION_MIN_BUCKET_SAMPLES
+        and spread <= CALIBRATION_MAX_SPREAD
+        and curtailment_ratio <= CALIBRATION_MAX_CURTAILMENT_RATIO
     )
     return BucketSuggestion(
         parameter=parameter,
@@ -416,6 +471,7 @@ def _bucket_suggestion(
         spread=round(spread, 3),
         sample_count=len(values),
         configured_factor=configured,
+        curtailment_ratio=round(curtailment_ratio, 2),
         confident=confident,
     )
 
@@ -429,6 +485,19 @@ def _iqr(values: list[float]) -> float:
     lower = ordered[: n // 2]
     upper = ordered[(n + 1) // 2 :]
     return median(upper) - median(lower)
+
+
+def _percentile(values: list[float], fraction: float) -> float:
+    """Linear-interpolated percentile (``fraction`` in [0, 1]) of ``values``."""
+    if not values:
+        return 0.0
+    if len(values) == 1:
+        return values[0]
+    ordered = sorted(values)
+    pos = fraction * (len(ordered) - 1)
+    low = int(pos)
+    high = min(low + 1, len(ordered) - 1)
+    return ordered[low] + (pos - low) * (ordered[high] - ordered[low])
 
 
 def _forecast_curves(states: list[Any]) -> list[tuple[datetime, dict[datetime, float]]]:

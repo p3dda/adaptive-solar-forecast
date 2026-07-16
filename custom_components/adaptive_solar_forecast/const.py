@@ -33,6 +33,7 @@ CONF_AFTERNOON_HORIZON_FACTOR: Final = "afternoon_horizon_factor"
 CONF_AFTER_SOLAR_NOON_ONLY: Final = "after_solar_noon_only"
 
 CONF_ACTUAL_PRODUCTION_ENTITY: Final = "actual_production_entity"
+CONF_AC_OUTPUT_ENTITY: Final = "ac_output_entity"
 CONF_CALIBRATION_CLIP_WATTS: Final = "calibration_clip_watts"
 CONF_CALIBRATION_DAYS: Final = "calibration_days"
 CONF_BATTERY_FULL_ENTITY: Final = "battery_full_entity"
@@ -62,9 +63,10 @@ DEFAULT_AFTERNOON_END_FACTOR = 0.12
 DEFAULT_AFTERNOON_HORIZON_FACTOR = 0.03
 DEFAULT_AFTER_SOLAR_NOON_ONLY = True
 
-# Curtailment guard: a Balkonkraftwerk inverter clamps output (commonly to
-# 800 W) once the battery is full, so those samples reflect a legal/hardware
-# cap rather than shading and must be excluded from calibration.
+# Curtailment guard: a Balkonkraftwerk inverter clamps its AC output (commonly
+# to 800 W). When an AC-output entity is configured, samples at/above this clip
+# are excluded as curtailed. Note: this must NOT be applied to a raw PV/solar
+# input sensor, which routinely exceeds the AC cap when uncurtailed.
 DEFAULT_CALIBRATION_CLIP_WATTS = 800.0
 DEFAULT_CALIBRATION_DAYS = 30
 DEFAULT_BATTERY_FULL_THRESHOLD = 100.0
@@ -75,11 +77,21 @@ CALIBRATION_CLIP_MARGIN = 0.98  # treat >= 98% of the clip as curtailed
 CALIBRATION_MAX_FACTOR = 1.0  # shading can only reduce output
 CALIBRATION_MIN_BUCKET_SAMPLES = 30  # below this, a suggestion is low-confidence
 CALIBRATION_MAX_SPREAD = 0.25  # IQR above this means the bucket is too noisy to trust
+# If most of a band's samples were curtailed/battery-excluded, its clear-sky
+# peaks are missing and the envelope under-reads -- so it cannot be trusted even
+# if the surviving (cloudy) samples happen to agree. High-sun afternoon bands on
+# a battery system are the typical victims.
+CALIBRATION_MAX_CURTAILMENT_RATIO = 0.35
 
 # Reference normalization: samples the model treats as essentially unshaded are
 # used to measure forecast bias, so shading factors are expressed relative to the
 # observed unshaded baseline rather than the raw (possibly biased) forecast.
 CALIBRATION_REFERENCE_MIN_MODEL_FACTOR = 0.95
 CALIBRATION_REFERENCE_MIN_SAMPLES = 20
+
+# Upper-envelope estimator: clouds and battery curtailment can only push actual
+# production *below* the true shading ceiling, so the shading factor is estimated
+# from a high percentile of actual/expected per bucket rather than the median.
+CALIBRATION_ENVELOPE_PERCENTILE = 0.85
 
 DEFAULT_SCAN_INTERVAL = timedelta(minutes=DEFAULT_UPDATE_INTERVAL)

@@ -149,19 +149,33 @@ state-of-charge entity) in the integration options, then call the service from
 Developer Tools → Actions with "Return response". Suggested factors are also
 stored in the integration's diagnostics.
 
-Curtailment is excluded automatically: a Balkonkraftwerk inverter clamps output
-(commonly to 800 W) once the battery is full — mostly in the afternoon — so
-samples at/above the configurable clip limit, or while the battery is full, are
-dropped before any factor is computed. Otherwise curtailment would be misread as
-afternoon shading.
+Curtailment is handled explicitly, because on a battery system the inverter
+clamps its **AC output** (commonly to 800 W) and throttles PV harvest once the
+battery is full. If you configure an optional AC-output entity, samples where it
+is at/above the clip limit are dropped; samples while the battery is full (via an
+optional SoC entity) are dropped too. Note that the clip must **not** be applied
+to a raw PV/solar-input sensor, which legitimately exceeds the AC cap when
+uncurtailed — configure the AC-output entity separately for that.
 
-Observed factors are **normalized against the unshaded baseline**: times the
-model treats as essentially unshaded are used to measure and cancel any bias in
-the base forecast, so a forecast that systematically over- or under-predicts
-does not skew the shading factors. Each suggestion reports its raw factor, the
-interquartile spread, and a `confident` flag (enough samples and a tight
-spread) — trust the confident rows and treat wide-spread or low-count rows as
-indicative only.
+Three techniques make the suggestions trustworthy:
+
+- **Upper-envelope estimator** — clouds and curtailment only push production
+  *below* the true shading ceiling, so each factor is the high percentile (P85)
+  of observed `actual/forecast`, not the median. This ignores cloudy/throttled
+  samples instead of averaging them in.
+- **Reference normalization** — times the model treats as unshaded measure and
+  cancel base-forecast bias, so a forecast that systematically over- or
+  under-predicts does not skew the factors. If the reference sits well below 1.0,
+  your base forecast is over-predicting (check its declared kWp/tilt/azimuth).
+- **Per-band curtailment guard** — a band whose clear-sky peaks were mostly lost
+  to curtailment cannot be recovered even if the surviving samples agree, so it
+  is marked not `confident`.
+
+Each suggestion reports `raw_factor`, `spread`, `curtailment_ratio`, sample
+count, and a `confident` flag. **Trust the confident rows only.** On a battery
+system the high-sun early-afternoon bands are often not calibratable (their
+clear-sky production is always curtailed); the reliably observable signal is the
+morning sector and the low-sun late-afternoon bands.
 
 ## Roadmap
 

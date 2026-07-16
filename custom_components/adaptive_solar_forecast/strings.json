@@ -14,8 +14,9 @@
           "forecast_tomorrow_entity": "Forecast entity for tomorrow",
           "sun_entity": "Sun entity",
           "update_interval": "Update interval in minutes",
-          "actual_production_entity": "Actual production entity (for calibration)",
-          "calibration_clip_watts": "Curtailment clip in watts (samples at/above are excluded)",
+          "actual_production_entity": "Actual production entity — raw PV/solar power (for calibration)",
+          "ac_output_entity": "AC output entity (optional; the clip is applied to this, not raw PV)",
+          "calibration_clip_watts": "AC output curtailment clip in watts (samples at/above are excluded)",
           "calibration_days": "Calibration history window in days",
           "battery_full_entity": "Battery state-of-charge entity (optional)",
           "battery_full_threshold": "Battery-full threshold (samples at/above are excluded)"

@@ -12,6 +12,7 @@ from homeassistant.helpers import selector
 
 from .const import (
     CONF_ACTUAL_PRODUCTION_ENTITY,
+    CONF_AC_OUTPUT_ENTITY,
     CONF_AFTERNOON_DEEP_ELEVATION,
     CONF_AFTERNOON_DEEP_FACTOR,
     CONF_AFTERNOON_END_ELEVATION,
@@ -105,6 +106,10 @@ def _base_schema(defaults: Mapping[str, Any]) -> vol.Schema:
             vol.Optional(
                 CONF_ACTUAL_PRODUCTION_ENTITY,
                 default=defaults.get(CONF_ACTUAL_PRODUCTION_ENTITY),
+            ): _entity_selector("sensor"),
+            vol.Optional(
+                CONF_AC_OUTPUT_ENTITY,
+                default=defaults.get(CONF_AC_OUTPUT_ENTITY),
             ): _entity_selector("sensor"),
             vol.Optional(
                 CONF_CALIBRATION_CLIP_WATTS,
